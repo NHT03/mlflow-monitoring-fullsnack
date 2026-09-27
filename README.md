@@ -1,787 +1,467 @@
-# 🎯 ML Model Monitoring System
+# 🎯 Production ML Model Monitoring & Orchestration System
 
-**This project is for demonstration purposes.**
-A production-ready machine learning monitoring system using MLFlow, Prometheus, Grafana and Evidently for real-time model observability and performance tracking.
-
----
-
-## 📋 Table of Contents
-
-- [Overview](#-overview)
-- [Architecture](#-architecture)
-- [Features](#-features)
-- [Prerequisites](#-prerequisites)
-- [Quick Start](#-quick-start)
-- [Configuration](#-configuration)
-- [Training Models](#-training-models)
-- [Monitoring & Dashboards](#-monitoring--dashboards)
-- [Evidently & Drift Monitoring](#-evidently--drift-monitoring)
-- [Simulations & Load Testing](#-simulations--load-testing)
-- [API Documentation](#-api-documentation)
-- [Troubleshooting](#-troubleshooting)
-- [Project Structure](#-project-structure)
+Hệ thống giám sát (monitoring), phát hiện trôi dữ liệu (data drift), tự động hóa pipeline (orchestration) và cảnh báo thời gian thực (real-time alerts) cho mô hình Machine Learning trong môi trường Production.
 
 ---
 
-## 🎯 Overview
+## 📋 Mục lục (Table of Contents)
 
-This project demonstrates a complete MLOps pipeline with real-time monitoring for production machine learning models. It includes:
-
-- **Model Training & Registry**: Train models and manage versions with MLFlow
-- **Model Serving**: FastAPI-based REST API for model predictions
-- **Metrics Collection**: Prometheus for scraping model, API, and drift metrics
-- **Visualization**: Grafana dashboards for real-time monitoring and drift analysis
-- **Drift & Data Quality Monitoring**: Evidently service for distribution drift detection and reports
-- **Storage**: MinIO (S3-compatible) for model artifacts
-- **Database**: PostgreSQL for MLFlow backend store
-
-**Use Cases:**
-- Monitor model performance in production
-- Track prediction latency and throughput
-- Detect data drift and model degradation
-- Compare model versions and A/B testing
-- Alert on anomalies and performance issues
+1. [Tổng quan hệ thống (System Overview)](#-tổng-quan-hệ-thống)
+2. [Kiến trúc hệ thống (Architecture)](#-kiến-trúc-hệ-thống)
+3. [Danh sách dịch vụ & Cổng truy cập (Services & Ports)](#-danh-sách-dịch-vụ--cổng-truy-cập)
+4. [Yêu cầu tiên quyết (Prerequisites)](#-yêu-cầu-tiên-quyết)
+5. [Hướng dẫn cài đặt & chạy từ A-Z (Step-by-Step Guide)](#-hướng-dẫn-cài-đặt--chạy-từ-a-z)
+   - [Bước 1: Clone Repository & Cấu hình `.env`](#bước-1-clone-repository--cấu-hình-env)
+   - [Bước 2: Khởi động Hạ tầng nền tảng (Storage, DB, MLflow, Prometheus, Grafana)](#bước-2-khởi-động-hạ-tầng-nền-tảng)
+   - [Bước 3: Huấn luyện và Đăng ký Model vào MLflow Registry](#bước-3-huấn-luyện-và-đăng-ký-model-vào-mlflow-registry)
+   - [Bước 4: Khởi tạo Database cho Airflow & Khởi động toàn bộ Service](#bước-4-khởi-tạo-database-cho-airflow--khởi-động-toàn-bộ-service)
+   - [Bước 5: Kiểm tra Model Serving API](#bước-5-kiểm-tra-model-serving-api)
+   - [Bước 6: Vận hành Airflow Pipeline & Cảnh báo Telegram](#bước-6-vận-hành-airflow-pipeline--cảnh-báo-telegram)
+   - [Bước 7: Theo dõi Dashboards trên Grafana & Evidently](#bước-7-theo-dõi-dashboards-trên-grafana--evidently)
+   - [Bước 8: Chạy giả lập dữ liệu & Kiểm thử Data Drift (Simulations)](#bước-8-chạy-giả-lập-dữ-liệu--kiểm-thử-data-drift)
+6. [Tài liệu API (API Documentation)](#-tài-liệu-api)
+7. [Xử lý sự cố thường gặp (Troubleshooting & FAQ)](#-xử-lý-sự-cố-thường-gặp-troubleshooting)
+8. [Cấu trúc thư mục (Project Structure)](#-cấu-trúc-thư-mục)
 
 ---
 
-## 🏗 Architecture
+## 🎯 Tổng quan hệ thống
+
+Dự án cung cấp một hệ thống MLOps hoàn chỉnh đáp ứng tiêu chuẩn sản xuất (production-ready):
+- **Model Registry & Tracking**: Quản lý phiên bản mô hình, siêu tham số và artifacts với **MLflow** và **MinIO (S3-compatible)**.
+- **Model Serving**: API tốc độ cao bằng **FastAPI**, tự động nạp mô hình từ MLflow Model Registry (Production stage) và xuất Prometheus metrics.
+- **Data Drift & Quality Monitoring**: **Evidently AI** giám sát phân phối dữ liệu đầu vào, phát hiện sai lệch (drift score, p-value), tạo báo cáo HTML trực quan.
+- **Metrics Collection & Dashboards**: **Prometheus** thu thập số liệu thời gian thực và **Grafana** hiển thị biểu đồ chi tiết (Request rate, Latency p95/p99, Error rate, Drift metrics).
+- **Workflow Orchestration**: **Apache Airflow** lập lịch định kỳ kiểm tra sức khỏe hệ thống, kích hoạt phân tích drift và tự động gửi thông báo.
+- **Real-time Alerting**: Tích hợp cảnh báo tự động về **Telegram Bot** khi xảy ra Data Drift hoặc API gặp sự cố (cả từ Airflow DAG lẫn Grafana Alerting).
+
+---
+
+## 🏗 Kiến trúc hệ thống
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                          MONITORING STACK                           │
-│                                                                      │
-│  ┌──────────┐      ┌──────────┐      ┌──────────┐                  │
-│  │ Grafana  │─────▶│Prometheus│◀─────│ FastAPI  │                  │
-│  │  :3000   │      │  :9090   │      │  :8000   │                  │
-│  └──────────┘      └──────────┘      └────┬─────┘                  │
-│       ▲                     ▲             │                         │
-│       │                     │             │                         │
-│       │            ┌────────┴──────┐      │                         │
-│       │            │  Evidently    │◀─────┘  (prediction capture)   │
-│       │            │  :8001        │  exposes drift/data-quality    │
-│       │            └──────────────-┘  metrics to Prometheus         │
-│       │                                    │                        │
-│       │            ┌──────────┐            │                        │
-│       └───────────▶│  MLFlow  │◀───────────┘                        │
-│                    │  :5000   │                                     │
-│                    └────┬─────┘                                     │
-│                         │                                           │
-│              ┌──────────┴──────────┐                                │
-│              │                     │                                │
-│         ┌────▼─────┐         ┌────▼────┐                            │
-│         │PostgreSQL│         │  MinIO  │                            │
-│         │  :5432   │         │  :9000  │                            │
-│         └──────────┘         └─────────┘                            │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                             PRODUCTION ML MONITORING STACK                       │
+│                                                                                  │
+│   ┌───────────────┐        ┌──────────────┐         ┌────────────────────────┐   │
+│   │    Grafana    │───────▶│  Prometheus  │◀────────│   FastAPI Model API    │   │
+│   │    (:3000)    │        │   (:9090)    │         │        (:8000)         │   │
+│   └───────┬───────┘        └──────▲───────┘         └───────────┬────────────┘   │
+│           │                       │                             │                │
+│           │ (Telegram Alerts)     │ (Metrics)                   │                │
+│           ▼                       │                             ▼ (Predictions)  │
+│   ┌───────────────┐        ┌──────┴────────┐        ┌────────────────────────┐   │
+│   │ Telegram Bot  │◀───────│ Evidently AI  │◀───────│   Data Simulation      │   │
+│   │ (Chat Alerts) │        │    (:8001)    │        │  (Traffic/Drift Test)  │   │
+│   └───────▲───────┘        └───────────────┘        └────────────────────────┘   │
+│           │                                                                      │
+│           │ (Alerts on drift / failures)                                         │
+│   ┌───────┴───────────────┐        ┌──────────────┐         ┌────────────────┐   │
+│   │    Apache Airflow     │───────▶│    MLflow    │────────▶│ MinIO Storage  │   │
+│   │   Webserver/Scheduler │        │   (:5000)    │         │  (:9000/:9001) │   │
+│   │        (:8080)        │        └──────┬───────┘         └────────────────┘   │
+│   └───────────────────────┘               │                                      │
+│                                           ▼                                      │
+│                                    ┌──────────────┐                              │
+│                                    │  PostgreSQL  │                              │
+│                                    │   (:5432)    │                              │
+│                                    └──────────────┘                              │
+└──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Components
+---
 
-| Service | Port | Description |
-|---------|------|-------------|
-| **MLFlow** | 5000 | Model registry and experiment tracking |
-| **FastAPI** | 8000 | Model serving API with Prometheus metrics |
-| **Evidently** | 8001 | Data drift & data-quality monitoring service (Prometheus + HTML reports) |
-| **Prometheus** | 9090 | Metrics collection and storage |
-| **Grafana** | 3000 | Visualization and dashboards (API + drift) |
-| **MinIO** | 9000 | S3-compatible object storage for artifacts |
-| **MinIO Console** | 9001 | MinIO web interface |
-| **PostgreSQL** | 5432 | MLFlow backend database |
+## 🔌 Danh sách dịch vụ & Cổng truy cập
+
+Sau khi khởi chạy hoàn tất, các dịch vụ sẵn sàng tại các địa chỉ sau:
+
+| Dịch vụ | URL | Thông tin đăng nhập mặc định | Mục đích |
+|---------|-----|------------------------------|----------|
+| **FastAPI Serving** | [http://localhost:8000](http://localhost:8000) | Không cần login (Docs: `/docs`) | Dự đoán (Inference), Health check, Prometheus metrics |
+| **Evidently AI** | [http://localhost:8001](http://localhost:8001) | Không cần login (Docs: `/docs`) | Báo cáo Data Drift (`/reports`), Drift API |
+| **Grafana Dashboards** | [http://localhost:3000](http://localhost:3000) | `admin` / `admin` | Biểu đồ trực quan hóa API, Latency, Data Drift |
+| **MLflow Registry** | [http://localhost:5000](http://localhost:5000) | Không cần login | Quản lý thí nghiệm và Model Registry |
+| **Apache Airflow** | [http://localhost:8080](http://localhost:8080) | `admin` / `admin` | Điều phối pipeline, giám sát định kỳ & gửi Telegram |
+| **Prometheus** | [http://localhost:9090](http://localhost:9090) | Không cần login | Thu thập và truy vấn Time-series metrics |
+| **MinIO Console** | [http://localhost:9001](http://localhost:9001) | `minio` / `minio123` | Giao diện quản lý S3 Bucket lưu trữ Model Artifacts |
+| **MinIO S3 API** | [http://localhost:9000](http://localhost:9000) | S3 Access Key / Secret Key | S3 Storage Backend |
+| **PostgreSQL** | `localhost:5432` | `mlflow` / `mlflow` | Database cho MLflow Backend & Airflow Metadata |
 
 ---
 
-## Features
+## 💻 Yêu cầu tiên quyết (Prerequisites)
 
-### Model Monitoring
-- Real-time prediction latency tracking (p50, p95, p99)
-- Request throughput and error rate monitoring
-- Model version tracking and comparison
-- Prediction distribution analysis
-- Feature drift detection (via Prometheus + Evidently)
+Để chạy trơn tru toàn bộ hệ thống, máy tính cần cài đặt:
 
-### Metrics Collection
-- API request metrics (count, latency, status codes)
-- Model prediction metrics (count, latency, errors)
-- Feature value distributions for drift detection
-- Model load time and version information
-- Custom business metrics
-- Drift and data-quality metrics from Evidently (drift score, drifted features, missing values)
-
-### Visualization
-- Pre-configured Grafana dashboards for API and model metrics
-- Dedicated Grafana dashboard for Evidently drift monitoring
-- Real-time metric updates
-- Alert rules for anomaly and drift detection
-- Historical trend analysis
-- Multi-model comparison views
-
-### Production Ready
-- Docker Compose orchestration
-- Health checks for all services
-- Automatic MinIO bucket initialization
-- Persistent data volumes
-- Environment-based configuration
+1. **Docker Desktop** (trên Windows / macOS) hoặc **Docker Engine & Docker Compose** (trên Linux):
+   - Phiên bản Docker: `≥ 20.10.0`
+   - Phiên bản Docker Compose: `≥ 2.0.0`
+   - *Lưu ý*: Hãy chắc chắn Docker daemon đang hoạt động (`docker info`).
+2. **Git**: Để clone mã nguồn.
+3. *(Tùy chọn)* Python 3.10+: Nếu muốn chạy script training và simulation trực tiếp trên máy host. **Nếu không cài Python trên host, bạn hoàn toàn có thể chạy training trực tiếp thông qua Docker container theo hướng dẫn dưới đây.**
 
 ---
 
-## Prerequisites
+## 🚀 Hướng dẫn cài đặt & chạy từ A-Z
 
-Before you begin, ensure you have the following installed:
+> [!IMPORTANT]
+> **QUY TẮC BẮT BUỘC:** Không chạy `docker compose up -d` tất cả dịch vụ ngay từ lần đầu tiên. Container `api` cần một model đã được đăng ký ở trạng thái `Production` trong MLflow để nạp vào bộ nhớ. Nếu khởi động `api` khi chưa train model, `api` sẽ báo lỗi và liên tục khởi động lại (unhealthy).
+> Hãy làm theo đúng 5 bước tuần tự bên dưới.
 
-- **Docker** (≥ 20.10.0)
-- **Docker Compose** (≥ 2.0.0)
-- **Python** (≥ 3.10) - for model training
----
+### Bước 1: Clone Repository & Cấu hình `.env`
 
-## Quick Start
-
-### Repository
+Mở Terminal (hoặc PowerShell trên Windows) và thực hiện:
 
 ```bash
-unzip ml-monitoring.zip
+# 1. Clone repository về máy
+git clone <URL_CUA_REPOSITORY>
 cd ml-monitoring
-```
 
-### Configure Environment
-
-```bash
-# Copy environment template
+# 2. Tạo file cấu hình môi trường từ mẫu có sẵn
+# Trên Linux/macOS:
 cp .env.example .env
 
-# Edit .env if needed (optional for local development)
-nano .env
+# Trên Windows PowerShell:
+Copy-Item .env.example .env
 ```
 
-**Default Configuration:**
-- User: `dongnd` (used for container naming)
-- All passwords: use default for development
+Mở file `.env` bằng trình soạn thảo (VS Code, Notepad, Nano...) để kiểm tra các thông số:
+- Biến `USER`: Tên định danh cho container (mặc định: `USER=dongnd`).
+- Cấu hình Telegram (Nếu muốn nhận tin nhắn cảnh báo):
+  - `TELEGRAM_BOT_TOKEN`: Token bot lấy từ [@BotFather](https://t.me/BotFather).
+  - `TELEGRAM_CHAT_ID`: ID người dùng hoặc nhóm chat (lấy nhanh bằng cách nhắn tin cho bot [@userinfobot](https://t.me/userinfobot)).
+  > *Lưu ý*: Nếu chưa có Telegram Bot, bạn có thể để nguyên giá trị mặc định để chạy thử hệ thống trước.
 
-###  Start Infrastructure Services
+---
 
-Start all core infrastructure services (PostgreSQL, MinIO, MLFlow, Prometheus, Grafana):
+### Bước 2: Khởi động Hạ tầng nền tảng
+
+Khởi động các dịch vụ lưu trữ dữ liệu, cơ sở dữ liệu, MLflow, Prometheus và Grafana trước:
 
 ```bash
-docker-compose up -d postgres minio minio-init mlflow prometheus grafana
+docker compose up -d postgres minio minio-init mlflow prometheus grafana
 ```
 
-**Wait for services to be healthy**:
+Kiểm tra trạng thái các container sau khoảng 10-15 giây:
 
 ```bash
-# Check service status
-docker-compose ps
-
-# All services should show "healthy" or "Up"
+docker compose ps
 ```
 
-### ️Train and Register Model
+Đảm bảo các container sau đang ở trạng thái `Up` hoặc `healthy`:
+- `..._monitoring-postgres`
+- `..._monitoring-minio`
+- `..._monitoring-mlflow`
+- `..._monitoring-prometheus`
+- `..._monitoring-grafana`
 
-**⚠️ IMPORTANT**: The API requires a trained model in MLFlow Registry before it can start!
+---
 
+### Bước 3: Huấn luyện và Đăng ký Model vào MLflow Registry
+
+Bây giờ chúng ta cần huấn luyện mô hình phân loại chất lượng rượu vang (`wine_quality_model`), lưu trữ artifact vào MinIO và đưa phiên bản này vào trạng thái `Production` trên MLflow.
+
+Bạn có thể chọn **1 trong 2 cách** sau:
+
+#### Cách 1: Chạy trực tiếp bên trong Docker MLflow (Khuyên Dùng ⭐⭐⭐)
+*Ưu điểm: Không cần cài đặt Python, không lo xung đột thư viện hay lỗi biên dịch trên máy host.*
+
+- **Trên Windows PowerShell:**
+  ```powershell
+  # Đọc biến USER từ .env (hoặc gõ trực tiếp tên container, ví dụ: dongnd_monitoring-mlflow)
+  $USER_NAME = (Get-Content .env | Select-String "^USER=").Line.Split("=")[1].Trim()
+
+  # Copy file training.py vào container mlflow
+  docker cp scripts/training.py "${USER_NAME}_monitoring-mlflow:/mlflow/training.py"
+
+  # Chạy huấn luyện và đăng ký model
+  docker exec -e MLFLOW_S3_ENDPOINT_URL=http://minio:9000 "${USER_NAME}_monitoring-mlflow" python /mlflow/training.py
+  ```
+
+- **Trên Linux / macOS / Git Bash:**
+  ```bash
+  USER_NAME=$(grep -E '^USER=' .env | cut -d '=' -f 2 || echo "dongnd")
+
+  # Copy file training.py vào container mlflow
+  docker cp scripts/training.py "${USER_NAME}_monitoring-mlflow:/mlflow/training.py"
+
+  # Chạy huấn luyện và đăng ký model
+  docker exec -e MLFLOW_S3_ENDPOINT_URL=http://minio:9000 "${USER_NAME}_monitoring-mlflow" python /mlflow/training.py
+  ```
+
+#### Cách 2: Chạy trực tiếp trên máy Host (Yêu cầu Python 3.10 - 3.11)
 ```bash
-# Install Python dependencies
 pip install -r scripts/requirements.txt
-
-# Train and register model
 python scripts/training.py
 ```
 
-**Expected Output:**
-```
- MLFlow Tracking URI: http://localhost:5000
-  Loading wine dataset...
-  Training samples: 142
-  Test samples: 36
-  Training model...
- Model Performance:
-   Accuracy:  0.9722
-   F1 Score:  0.9722
-   Precision: 0.9750
-   Recall:    0.9722
- Model promoted to Production!
-   Model: wine_quality_model
-   Version: 1
-   Stage: Production
+**Kết quả kỳ vọng xuất hiện trên màn hình:**
+```text
+✓ MLFlow Tracking URI: http://mlflow:5000
+✓ Loading wine dataset...
+✓ Training samples: 142 | Test samples: 36
+✓ Training RandomForest model...
+✓ Model Performance: Accuracy: 0.9722, F1 Score: 0.9722
+✓ Model registered successfully: wine_quality_model v1
+✓ Model version 1 transitioned to Production!
 ```
 
-**What this script does:**
-1. Trains a RandomForest classifier on wine dataset
-2. Logs model, parameters, and metrics to MLFlow
-3. Registers model in MLFlow Model Registry
-4. Promotes model to **Production** stage
-5. Stores artifacts in MinIO bucket
+> [!TIP]
+> Bạn có thể mở trình duyệt vào [http://localhost:5000](http://localhost:5000) (MLflow UI), chọn mục **Models** sẽ thấy model `wine_quality_model` đang ở stage **Production**.
 
-### Start Model Serving API
+---
 
-Now that the model is registered, start the API:
+### Bước 4: Khởi tạo Database cho Airflow & Khởi động toàn bộ Service
 
+Apache Airflow cần một database riêng trong PostgreSQL và bảng metadata được migrate trước khi khởi chạy webserver/scheduler.
+
+#### 4.1. Tạo database `airflow` trong PostgreSQL:
+- **Trên Windows PowerShell:**
+  ```powershell
+  $USER_NAME = (Get-Content .env | Select-String "^USER=").Line.Split("=")[1].Trim()
+  docker exec "${USER_NAME}_monitoring-postgres" psql -U mlflow -d mlflow -c "CREATE DATABASE airflow;"
+  ```
+- **Trên Linux / macOS:**
+  ```bash
+  USER_NAME=$(grep -E '^USER=' .env | cut -d '=' -f 2 || echo "dongnd")
+  docker exec "${USER_NAME}_monitoring-postgres" psql -U mlflow -d mlflow -c "CREATE DATABASE airflow;"
+  ```
+*(Nếu database `airflow` đã tồn tại từ lần chạy trước, bạn có thể bỏ qua thông báo "already exists").*
+
+#### 4.2. Migrate database và tạo tài khoản quản trị Airflow:
 ```bash
-docker-compose up -d api
+# Chạy migration bảng cho Airflow
+docker compose run --rm airflow-webserver airflow db migrate
+
+# Tạo tài khoản đăng nhập admin / admin
+docker compose run --rm airflow-webserver airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin
 ```
 
-**Verify API is running:**
-
+#### 4.3. Khởi động API, Evidently và Airflow:
 ```bash
-# Check health
+docker compose up -d api evidently airflow-webserver airflow-scheduler
+```
+
+Kiểm tra lại toàn bộ trạng thái hệ thống:
+```bash
+docker compose ps
+```
+Tất cả các container bây giờ phải hiển thị trạng thái `Up` và `healthy`!
+
+---
+
+### Bước 5: Kiểm tra Model Serving API
+
+Xác nhận API đã tải thành công mô hình từ MLflow Model Registry:
+
+#### 1. Kiểm tra trạng thái sức khỏe (Health Check):
+```bash
 curl http://localhost:8000/health
-
-# Expected output:
-# {
-#   "status": "healthy",
-#   "model_loaded": true,
-#   "model_name": "wine_quality_model",
-#   "model_version": "1",
-#   "uptime_seconds": 12.34
-# }
 ```
-
-### Start Evidently Drift Service (Optional but Recommended)
-
-Evidently provides drift reports and additional Prometheus metrics:
-
-```bash
-docker-compose up -d evidently
-```
-
-**Verify Evidently is running:**
-
-```bash
-curl http://localhost:8001/health
-```
-
-You should see a JSON response with `status: "healthy"`.
-
-### Generate Test Metrics (API & Drift)
-
-Run the helper scripts to generate traffic and metrics:
-
-```bash
-# Basic API metrics & Prometheus/Grafana demo
-chmod +x test_metrics.sh
-./test_metrics.sh
-
-# (Optional) More advanced drift simulations
-cd simulations
-pip install -r requirements.txt
-./quick_test.sh         # small smoke test
-python run_simulation.py -n 200 -s moderate_drift --analyze
-cd ..
-```
-
-These scripts will:
-- Send health and prediction requests to the API
-- Generate Prometheus metrics for API and model
-- Optionally send data to Evidently and trigger drift analysis
-- Make it easy to visualize everything in Grafana
-
-### Access Dashboards & UIs
-
-| Service | URL | Credentials |
-|---------|-----|-------------|
-| **Grafana (API + Drift)** | http://localhost:3000 | admin / admin |
-| **MLFlow** | http://localhost:5000 | - |
-| **Prometheus** | http://localhost:9090 | - |
-| **MinIO Console** | http://localhost:9001 | minio / minio123 |
-| **Evidently API & Reports** | http://localhost:8001 | - (see `/docs`, `/reports`) |
-| **API Docs** | http://localhost:8000/docs | - |
-
----
-
-## Configuration
-
-### Environment Variables
-
-All configuration is managed through the `.env` file:
-
-```bash
-# User Configuration
-USER=dongnd                    # Your username (for container naming)
-
-# MLFlow Configuration
-MLFLOW_PORT=5000              # MLFlow server port
-MODEL_NAME=wine_quality_model # Model name in registry
-MODEL_STAGE=Production        # Model stage to serve
-
-# MinIO Configuration
-MINIO_ROOT_USER=minio
-MINIO_ROOT_PASSWORD=minio123 
-MINIO_BUCKET_NAME=mlflow-artifacts
-
-# Grafana Configuration
-GRAFANA_ADMIN_USER=admin
-GRAFANA_ADMIN_PASSWORD=admin
-
-# See .env.example for all options
-```
-
-### Grafana Datasource
-
-The Prometheus datasource is automatically provisioned with:
-- **UID**: `prometheus-datasource` (stable reference)
-- **URL**: `http://prometheus:9090`
-- **Query Timeout**: 60s
-- **HTTP Method**: POST (faster queries)
-- **Incremental Querying**: Enabled
-
----
-
-## Training Models
-
-### Using the Training Script
-
-The included training script (`scripts/training.py`) trains a RandomForest model on the wine dataset:
-
-```bash
-# Basic usage
-python scripts/training.py
-```
-
-### Training Your Own Models
-
-To train your own models:
-
-1. **Create a training script** following this pattern:
-
-```python
-import mlflow
-import mlflow.sklearn
-import os
-
-# Configure MLFlow
-mlflow.set_tracking_uri('http://localhost:5000')
-os.environ['MLFLOW_S3_ENDPOINT_URL'] = 'http://localhost:9000'
-os.environ['AWS_ACCESS_KEY_ID'] = 'minio'
-os.environ['AWS_SECRET_ACCESS_KEY'] = 'minio123'
-
-# Train your model
-with mlflow.start_run(run_name="my_model_v1"):
-    # ... train model ...
-    
-    # Log model
-    mlflow.sklearn.log_model(
-        model,
-        artifact_path="model",
-        registered_model_name="my_model",
-        signature=mlflow.models.infer_signature(X_train, predictions)
-    )
-    
-    run_id = mlflow.active_run().info.run_id
-
-# Promote to Production
-client = mlflow.tracking.MlflowClient()
-model_versions = client.get_latest_versions("my_model", stages=["None"])
-if model_versions:
-    client.transition_model_version_stage(
-        name="my_model",
-        version=model_versions[0].version,
-        stage="Production"
-    )
-```
-
-2. **Update environment variables** in `docker-compose.yml`:
-
-```yaml
-api:
-  environment:
-    - MODEL_NAME=my_model 
-    - MODEL_STAGE=Production
-```
-
-3. **Restart the API**:
-
-```bash
-docker-compose restart api
-```
-
-### Model Requirements
-
-Your model must:
-- Be registered in MLFlow Model Registry
-- Have a version promoted to the specified stage (default: Production)
-- Be compatible with `mlflow.pyfunc.load_model()`
-- Accept numeric array input for predictions
-
----
-
-## Monitoring & Dashboards
-
-### Accessing Grafana
-
-1. Open http://localhost:3000
-2. Login: `admin` / `admin`
-3. Navigate to **Dashboards** → **ML Monitoring** (API/model metrics)
-4. Navigate to **Dashboards** → **Evidently - Data Drift Monitoring** (drift metrics)
-
-### Available Metrics
-
-The API exposes these Prometheus metrics at `http://localhost:8000/metrics`:
-
-#### API Metrics
-```promql
-# Request count by method, endpoint, and status
-api_requests_total{method="POST",endpoint="/predict",status="200"}
-
-# Request latency histogram
-api_request_latency_seconds{method="POST",endpoint="/predict"}
-```
-
-#### Model Metrics
-```promql
-# Prediction count by model and version
-model_predictions_total{model_name="wine_quality_model",model_version="1"}
-
-# Prediction latency histogram
-model_prediction_latency_seconds{model_name="wine_quality_model"}
-
-# Prediction value distribution (for drift detection)
-model_prediction_value{model_name="wine_quality_model"}
-
-# Prediction errors by type
-model_prediction_errors_total{model_name="wine_quality_model",error_type="..."}
-```
-
-#### System Metrics
-```promql
-# Current model version
-model_version_info{model_name="wine_quality_model",version="1"}
-
-# Model load time
-model_load_time_seconds{model_name="wine_quality_model"}
-```
-
-### Example Queries
-
-```promql
-# Requests per second
-rate(api_requests_total[5m])
-
-# 95th percentile latency
-histogram_quantile(0.95, rate(model_prediction_latency_seconds_bucket[5m]))
-
-# Error rate
-rate(model_prediction_errors_total[5m]) / rate(model_predictions_total[5m])
-
-# Average prediction value (drift detection)
-rate(model_prediction_value_sum[5m]) / rate(model_prediction_value_count[5m])
-```
-
----
-
-## Evidently & Drift Monitoring
-
-Evidently runs as a separate service (port **8001**) and provides:
-
-- **REST API** for capturing prediction data and triggering analysis
-- **HTML reports** for detailed drift and data-quality inspection
-- **Prometheus metrics** used by the Grafana drift dashboard
-
-### Key Endpoints
-
-- `GET /health` – service health and summary
-- `POST /capture` – capture a single prediction (features + prediction)
-- `POST /capture/batch` – capture a batch of predictions
-- `POST /analyze` – run drift analysis on recent production data
-- `GET /reports` – list available HTML drift reports
-- `GET /reports/{name}` – view a specific report
-- `GET /metrics` – Prometheus metrics (e.g. `evidently_data_drift_detected`, `evidently_drift_score`)
-
-### Typical Drift Monitoring Flow
-
-1. The **API** serves predictions and exposes metrics at `/metrics`.
-2. A **simulation script** (or your real app) sends traffic to `/predict`.
-3. The simulator optionally **captures** each request/response to Evidently (`/capture`).
-4. On a schedule (or manually), Evidently `/analyze` compares recent production data with reference data and:
-   - Updates Prometheus metrics (drift status, scores, drifted features, missing values, etc.).
-   - Generates an HTML drift report.
-5. **Prometheus** scrapes Evidently, and **Grafana** dashboards visualize drift and data quality.
-
-### Drift Dashboard in Grafana
-
-- Dashboard UID: `evidently-drift`
-- File: `config/grafana/dashboards/evidently-drift-monitoring.json`
-- Shows:
-  - Current drift status and drifted-features count
-  - Drift score over time
-  - Feature-level drift matrix
-  - Analysis latency and rate
-  - Missing-values ratio per feature
-
-### Alerts
-
-Prometheus alert rules for Evidently are defined in:
-
-- `config/prometheus/evidently_alerts.yml`
-
-Examples:
-
-- `DataDriftDetected` – drift detected for ≥ 5 minutes
-- `MultipleDriftedFeatures` – 3+ features drifting
-- `HighDriftScore` – drift score > 0.5
-- `HighMissingValues` – missing-values ratio > 20%
-- `SlowDriftAnalysis` – analysis taking too long
-
-These alerts can be wired to Alertmanager / Slack / email as needed.
-
----
-
-## Simulations & Load Testing
-
-To generate realistic traffic and drift scenarios, use the tools in the `simulations/` directory.
-
-### Installation
-
-```bash
-cd simulations
-pip install -r requirements.txt
-```
-
-### Quick Test
-
-```bash
-cd simulations
-./quick_test.sh       # 20 quick requests to validate everything end-to-end
-cd ..
-```
-
-### CLI Usage
-
-```bash
-cd simulations
-
-# 100 normal requests at 2 req/s
-python run_simulation.py -n 100 -s normal
-
-# 200 requests with moderate drift + run Evidently analysis
-python run_simulation.py -n 200 -s moderate_drift --analyze
-
-# Burst traffic pattern
-python run_simulation.py -p burst -s normal
-
-# Gradual traffic increase
-python run_simulation.py -p gradual -s normal
-```
-
-### Pre‑configured Scenarios
-
-```bash
-cd simulations
-
-# Run a specific scenario
-python scenarios.py 1  # Normal day traffic
-python scenarios.py 2  # Gradual drift
-python scenarios.py 3  # Sudden distribution shift
-python scenarios.py 6  # Stress test
-
-# Run all scenarios sequentially (demo)
-python scenarios.py
-```
-
-These simulations:
-
-- Hit the `/predict` endpoint on the API.
-- Optionally **capture** each prediction to Evidently.
-- Automatically **feed** metrics and drift signals into Prometheus & Grafana.
-
----
-
-## API Documentation
-
-### Endpoints
-
-#### `GET /`
-Root endpoint with API information.
-
-#### `GET /health`
-Health check endpoint.
-
-**Response:**
+**Kết quả trả về:**
 ```json
 {
   "status": "healthy",
   "model_loaded": true,
   "model_name": "wine_quality_model",
   "model_version": "1",
-  "uptime_seconds": 123.45
+  "uptime_seconds": 15.42
 }
 ```
 
-#### `POST /predict`
-Make predictions with the loaded model.
-
-**Request:**
-```json
-{
-  "features": [13.64, 3.1, 2.56, 15.2, 116.0, 2.7, 3.03, 0.17, 1.66, 5.1, 0.96, 3.36, 845.0],
-  "feature_names": ["fixed_acidity", "volatile_acidity", ...] // optional
-}
+#### 2. Gửi một request dự đoán (Inference):
+```bash
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"features": [13.2, 2.77, 2.51, 18.5, 96.6, 1.04, 2.55, 0.57, 1.47, 6.2, 1.05, 3.33, 820.0]}'
 ```
-
-**Response:**
+**Kết quả trả về:**
 ```json
 {
-  "prediction": 1.0,
+  "prediction": 0.0,
   "model_name": "wine_quality_model",
   "model_version": "1",
-  "timestamp": "2025-11-19T12:00:00",
-  "latency_ms": 15.23
+  "timestamp": "2026-09-27T...",
+  "latency_ms": 3.85
 }
 ```
 
-#### `GET /model/info`
-Get loaded model information.
+---
 
-#### `POST /model/reload`
-Reload model from registry.
+### Bước 6: Vận hành Airflow Pipeline & Cảnh báo Telegram
 
-#### `GET /metrics`
-Prometheus metrics endpoint.
-
-### Interactive API Docs
-
-Access Swagger UI at: http://localhost:8000/docs
+1. Truy cập giao diện Airflow Web UI: [http://localhost:8080](http://localhost:8080)
+2. Đăng nhập bằng tài khoản:
+   - **Username**: `admin`
+   - **Password**: `admin`
+3. Tại giao diện chính, bạn sẽ thấy 2 DAGs được lập trình sẵn:
+   - **`test_telegram_notification`**: Dùng để kiểm tra nhanh kết nối gửi thông báo về Telegram. Bấm nút **Trigger DAG** (biểu tượng Play ▶) để kiểm tra tin nhắn về bot.
+   - **`ml_model_monitoring_pipeline`**: Pipeline tự động thực hiện định kỳ:
+     - `check_api_health`: Kiểm tra FastAPI có đang sống không.
+     - `trigger_drift_analysis`: Gọi Evidently `/analyze` đối chiếu dữ liệu inference với baseline.
+     - `query_prometheus_drift_metrics`: Kiểm tra chỉ số `evidently_data_drift_detected` và `evidently_drift_score`.
+     - `alert_if_drift_or_failure`: Bắn tin nhắn cảnh báo đỏ đến Telegram nếu phát hiện dữ liệu bị trôi (Drift) hoặc hệ thống gặp sự cố.
 
 ---
 
-## Troubleshooting
+### Bước 7: Theo dõi Dashboards trên Grafana & Evidently
 
-### Common Issues
+1. Truy cập Grafana: [http://localhost:3000](http://localhost:3000)
+2. Đăng nhập với tài khoản: `admin` / `admin`
+3. Vào menu **Dashboards** để xem 2 dashboard có sẵn:
+   - **ML Monitoring**:
+     - Số lượng request/giây (RPS)
+     - Thời gian phản hồi (Latency P50, P95, P99)
+     - Tỷ lệ lỗi (Error Rate)
+     - Phân phối kết quả dự đoán của model
+   - **Evidently - Data Drift Monitoring**:
+     - Điểm số trôi dữ liệu (Drift Score)
+     - Số lượng đặc trưng (features) bị drift
+     - Tỷ lệ giá trị null/missing values theo từng feature
+4. Truy cập Evidently Reports: [http://localhost:8001/reports](http://localhost:8001/reports) để xem các báo cáo trực quan dưới dạng biểu đồ tương tác HTML.
 
-#### 1. API fails to start: "Model not loaded"
+---
 
-**Problem**: No model registered in MLFlow or wrong model name/stage.
+### Bước 8: Chạy giả lập dữ liệu & Kiểm thử Data Drift
 
-**Solution:**
+Thư mục `simulations/` chứa bộ công cụ tạo lưu lượng truy cập thực tế và giả lập các tình huống phân phối dữ liệu bị lệch (drift):
+
 ```bash
-# Check if model exists
-curl http://localhost:5000/api/2.0/mlflow/registered-models/get?name=wine_quality_model
-
-# Train and register model
-python scripts/training.py
-
-# Restart API
-docker-compose restart api
+cd simulations
+pip install -r requirements.txt
 ```
 
-#### 2. MLFlow healthcheck failing
-
-**Problem**: Port mismatch or MLFlow not ready.
-
-**Solution:**
+#### 1. Gửi 100 requests bình thường (Normal traffic):
 ```bash
-# Check MLFlow logs
-docker-compose logs mlflow
-
-# Verify port (should be 5000)
-docker-compose ps mlflow
-
-# Restart if needed
-docker-compose restart mlflow
+python run_simulation.py -n 100 -s normal
 ```
 
-#### 3. MinIO bucket not created
-
-**Problem**: minio-init service failed.
-
-**Solution:**
+#### 2. Giả lập dữ liệu bị Drift & tự động kích hoạt phân tích Evidently:
 ```bash
-# Check init logs
-docker-compose logs minio-init
-
-# Manual bucket creation
-docker-compose exec minio mc alias set myminio http://localhost:9000 minio minio123
-docker-compose exec minio mc mb myminio/mlflow-artifacts --ignore-existing
+python run_simulation.py -n 200 -s moderate_drift --analyze
 ```
 
-#### 4. Grafana datasource not working
-
-**Problem**: Prometheus not accessible or wrong configuration.
-
-**Solution:**
+#### 3. Chạy các kịch bản định sẵn:
 ```bash
-# Test Prometheus
-curl http://localhost:9090/-/healthy
-
-# Check Grafana datasource
-# Go to: http://localhost:3000/datasources
-# Click Prometheus → Test
-
-# Verify configuration in:
-cat config/grafana/provisioning/datasources/prometheus.yml
+python scenarios.py 1  # Kịch bản 1: Lưu lượng hoạt động bình thường
+python scenarios.py 2  # Kịch bản 2: Dữ liệu trôi dần theo thời gian (Gradual drift)
+python scenarios.py 3  # Kịch bản 3: Phân phối thay đổi đột ngột (Sudden shift)
+python scenarios.py 6  # Kịch bản 6: Kiểm thử chịu tải (Stress test)
 ```
 
-### Service Health Checks
+Khi chạy các kịch bản drift, bạn hãy quan sát:
+1. Grafana Dashboard cập nhật chỉ số drift tức thì.
+2. Airflow DAG phát hiện drift trong lần quét tiếp theo và gửi thông báo cảnh báo về Telegram của bạn.
+
+---
+
+## 📖 Tài liệu API
+
+FastAPI cung cấp giao diện Swagger UI tương tác trực tiếp tại: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+### Các Endpoint chính:
+- `GET /health`: Kiểm tra trạng thái API, uptime và model đã load.
+- `POST /predict`: Dự đoán với đầu vào là mảng 13 features của rượu vang:
+  ```json
+  {
+    "features": [13.2, 2.77, 2.51, 18.5, 96.6, 1.04, 2.55, 0.57, 1.47, 6.2, 1.05, 3.33, 820.0]
+  }
+  ```
+- `GET /model/info`: Lấy thông tin chi tiết về model đang hoạt động (tên model, phiên bản, thời gian load).
+- `POST /model/reload`: Tải lại mô hình mới nhất từ MLflow mà không cần khởi động lại container.
+- `GET /metrics`: Endpoint cho Prometheus scrape các metrics.
+
+---
+
+## 🛠 Xử lý sự cố thường gặp (Troubleshooting)
+
+### 1. Container `api` liên tục bị khởi động lại hoặc báo `unhealthy`
+- **Nguyên nhân**: Model chưa được huấn luyện hoặc chưa được gắn stage `Production` trong MLflow Registry trước khi API bật lên.
+- **Khắc phục**:
+  1. Kiểm tra MLflow xem model đã có chưa: `curl http://localhost:5000/api/2.0/mlflow/registered-models/get?name=wine_quality_model`
+  2. Nếu chưa có hoặc lỗi, chạy lại bước huấn luyện (Bước 3).
+  3. Sau khi model đã ở Production, khởi động lại API:
+     ```bash
+     docker compose restart api
+     ```
+
+### 2. Airflow báo lỗi `FATAL: database "airflow" does not exist`
+- **Nguyên nhân**: PostgreSQL chỉ khởi tạo database `mlflow` theo biến môi trường mặc định lúc tạo volume lần đầu.
+- **Khắc phục**: Chạy lệnh tạo database bằng tay vào container postgres:
+  ```bash
+  docker exec -it <TEN_CONTAINER_POSTGRES> psql -U mlflow -d mlflow -c "CREATE DATABASE airflow;"
+  docker compose run --rm airflow-webserver airflow db migrate
+  docker compose restart airflow-webserver airflow-scheduler
+  ```
+
+### 3. Không nhận được tin nhắn Telegram cảnh báo
+- **Nguyên nhân**: Chưa cấu hình hoặc cấu hình sai `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` trong `.env`, hoặc chưa bấm `/start` tương tác với bot.
+- **Khắc phục**:
+  1. Mở app Telegram, tìm đến con bot vừa tạo và bấm `/start`.
+  2. Điền chính xác `TELEGRAM_BOT_TOKEN` và `TELEGRAM_CHAT_ID` vào file `.env`.
+  3. Khởi động lại service Airflow:
+     ```bash
+     docker compose restart airflow-webserver airflow-scheduler
+     ```
+  4. Vào Airflow UI [http://localhost:8080](http://localhost:8080) và trigger DAG `test_telegram_notification` để kiểm tra.
+
+### 4. Dừng hệ thống & Reset sạch dữ liệu (Clean Reset)
+Nếu muốn tắt hoàn toàn hệ thống hoặc xóa toàn bộ volume dữ liệu để làm lại từ đầu:
 
 ```bash
-# Check all services
-docker-compose ps
+# Dừng tất cả container (giữ nguyên dữ liệu)
+docker compose down
 
-# Check specific service logs
-docker-compose logs -f mlflow
-docker-compose logs -f api
-docker-compose logs -f prometheus
-docker-compose logs -f grafana
-
-# Test endpoints
-curl http://localhost:5000/health    # MLFlow
-curl http://localhost:8000/health    # API
-curl http://localhost:9090/-/healthy # Prometheus
-curl http://localhost:3000/api/health # Grafana
-```
-
-### Reset Everything
-
-```bash
-# Stop all services
-docker-compose down
-
-# Remove volumes (️deletes all data!)
-docker-compose down -v
-
-# Rebuild and start fresh
-docker-compose build
-docker-compose up -d postgres minio minio-init mlflow prometheus grafana
-
-# Train model again
-python scripts/training.py
-
-# Start API
-docker-compose up -d api
+# Dừng và XÓA TOÀN BỘ volumes dữ liệu (lưu ý: sẽ xóa database, artifacts)
+docker compose down -v
 ```
 
 ---
 
-## Project Structure
+## 📁 Cấu trúc thư mục
 
 ```
 ml-monitoring/
-├── api/                          # FastAPI model serving
-│   ├── Dockerfile
-│   ├── main.py                   # API application with metrics
-│   └── requirements.txt
-├── mlflow/                       # MLFlow server
-│   └── Dockerfile
-├── config/                       # Configuration files
-│   ├── prometheus.yml            # Prometheus scrape config
-│   └── grafana/
+├── .env.example              # File cấu hình môi trường mẫu
+├── .env                      # File cấu hình môi trường đang áp dụng (gitignored)
+├── docker-compose.yml        # Orchestration định nghĩa toàn bộ 10 containers
+├── README.md                 # Hướng dẫn chi tiết sử dụng dự án
+├── airflow_dags/             # Thư mục chứa các DAGs của Apache Airflow
+│   ├── ml_monitoring_dag.py  # Pipeline tự động kiểm tra sức khỏe, drift & cảnh báo
+│   ├── telegram_alert.py     # Module phụ trợ kết nối Telegram API
+│   └── test_telegram_dag.py  # DAG kiểm thử kết nối Telegram
+├── api/                      # Mã nguồn FastAPI Model Serving
+│   ├── Dockerfile            # Container build cho API
+│   ├── main.py               # Ứng dụng FastAPI & định nghĩa Prometheus metrics
+│   └── requirements.txt      # Thư viện Python cho API (numpy, sklearn, fastapi)
+├── config/                   # Cấu hình cho Prometheus và Grafana
+│   ├── prometheus/           # Cấu hình scrape targets & Alert rules
+│   │   ├── prometheus.yml
+│   │   └── evidently_alerts.yml
+│   └── grafana/              # Provisioning Datasources, Dashboards & Telegram
 │       ├── provisioning/
-│       │   ├── datasources/      # Grafana datasources
-│       │   │   └── prometheus.yml
-│       │   └── dashboards/       # Dashboard provisioning
-│       │       └── dashboards.yml
-│       ├── dashboards/           # Dashboard JSON files
-│       │   └── ml-monitoring.json
-│       └── alerts.yml            # Alert rules
-├── scripts/                      # Training and utility scripts
-│   ├── training.py               # Model training script
+│       │   ├── alerting/telegram.yaml
+│       │   ├── datasources/prometheus.yml
+│       │   └── dashboards/dashboards.yml
+│       └── dashboards/       # JSON mẫu các Dashboard
+├── evidently/                # Dịch vụ phát hiện Data Drift & xuất báo cáo
+│   ├── Dockerfile
+│   ├── app.py
 │   └── requirements.txt
-├── docker-compose.yml            # Main orchestration file
-├── .env.example                  # Environment template
-├── .env                          # Active environment config
-└── README.md                     # This file
+├── mlflow/                   # Cấu hình khởi chạy MLflow Tracking Server
+│   └── Dockerfile
+├── scripts/                  # Scripts huấn luyện mô hình ban đầu
+│   ├── training.py           # Huấn luyện RandomForest & đăng ký MLflow Production
+│   └── requirements.txt
+└── simulations/              # Bộ công cụ giả lập traffic & drift để kiểm thử
+    ├── run_simulation.py     # Chạy request mô phỏng với các tùy chọn
+    ├── scenarios.py          # 6 kịch bản thử nghiệm tải & drift nâng cao
+    ├── data_generator.py     # Sinh dữ liệu phân phối bình thường & drift
+    └── quick_test.sh         # Script kiểm tra nhanh end-to-end
 ```
 
 ---
 
-## 📄 License
+## 📄 License & Giấy phép
 
-This project is provided as-is for demonstration purposes.
+Dự án được xây dựng và chia sẻ phục vụ mục đích học tập, nghiên cứu và triển khai MLOps trong thực tế. Mọi đóng góp (Contributions) đều được hoan nghênh!
