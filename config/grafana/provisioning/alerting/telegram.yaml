@@ -1,0 +1,34 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: Telegram Alerts
+    receivers:
+      - uid: telegram_alert_channel
+        type: telegram
+        disableResolveMessage: false
+        settings:
+          bottoken: "${TELEGRAM_BOT_TOKEN}"
+          chatid: "${TELEGRAM_CHAT_ID}"
+          message: |
+            🚨 *[GRAFANA ALERT]*
+            {{ if .Alerts.Firing }}
+            *Firing Alerts:*
+            {{ range .Alerts.Firing }}
+            • *Alert:* `{{ .Labels.alertname }}`
+            • *Severity:* {{ .Labels.severity }}
+            • *Summary:* {{ .Annotations.summary }}
+            • *Description:* {{ .Annotations.description }}
+            {{ end }}
+            {{ end }}
+            {{ if .Alerts.Resolved }}
+            *Resolved Alerts:*
+            {{ range .Alerts.Resolved }}
+            • *Alert:* `{{ .Labels.alertname }}` (Đã khắc phục)
+            {{ end }}
+            {{ end }}
+
+policies:
+  - orgId: 1
+    receiver: Telegram Alerts
+    group_by: ['alertname', 'severity']

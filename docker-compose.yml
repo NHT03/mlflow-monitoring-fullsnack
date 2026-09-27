@@ -173,6 +173,8 @@ services:
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_SERVER_ROOT_URL=http://localhost:3000
       - GF_INSTALL_PLUGINS=grafana-piechart-panel
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
     volumes:
       - grafana_data:/var/lib/grafana
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -214,61 +216,50 @@ services:
     restart: unless-stopped
 
   # ==========================================
-  # AIRFLOW (OPTIONAL)
+  # AIRFLOW
   # ==========================================
-  # Uncomment if you want Airflow monitoring
-  
-  # airflow-webserver:
-  #   image: apache/airflow:2.10.2
-  #   container_name: monitoring-airflow-webserver
-  #   environment:
-  #     AIRFLOW__CORE__EXECUTOR: LocalExecutor
-  #     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://mlflow:mlflow@postgres:5432/airflow
-  #     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-  #     AIRFLOW__METRICS__STATSD_ON: 'true'
-  #     AIRFLOW__METRICS__STATSD_HOST: statsd-exporter
-  #     AIRFLOW__METRICS__STATSD_PORT: 9125
-  #   ports:
-  #     - "8080:8080"
-  #   volumes:
-  #     - ./dags:/opt/airflow/dags
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #   networks:
-  #     - monitoring
-  #   command: webserver
-  
-  # airflow-scheduler:
-  #   image: apache/airflow:2.10.2
-  #   container_name: monitoring-airflow-scheduler
-  #   environment:
-  #     AIRFLOW__CORE__EXECUTOR: LocalExecutor
-  #     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://mlflow:mlflow@postgres:5432/airflow
-  #     AIRFLOW__METRICS__STATSD_ON: 'true'
-  #     AIRFLOW__METRICS__STATSD_HOST: statsd-exporter
-  #     AIRFLOW__METRICS__STATSD_PORT: 9125
-  #   volumes:
-  #     - ./dags:/opt/airflow/dags
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #   networks:
-  #     - monitoring
-  #   command: scheduler
-  
-  # statsd-exporter:
-  #   image: prom/statsd-exporter:latest
-  #   container_name: monitoring-statsd
-  #   command:
-  #     - '--statsd.mapping-config=/tmp/statsd_mapping.yml'
-  #   ports:
-  #     - "9102:9102"
-  #     - "9125:9125/udp"
-  #   volumes:
-  #     - ./config/statsd_mapping.yml:/tmp/statsd_mapping.yml:ro
-  #   networks:
-  #     - monitoring
+  airflow-webserver:
+    image: ddm501-t03-airflow:2.8.4
+    container_name: ${USER}_monitoring-airflow-webserver
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://mlflow:mlflow@postgres:5432/airflow
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=true
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./airflow_dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - monitoring
+    command: webserver
+    restart: unless-stopped
+
+  airflow-scheduler:
+    image: ddm501-t03-airflow:2.8.4
+    container_name: ${USER}_monitoring-airflow-scheduler
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://mlflow:mlflow@postgres:5432/airflow
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    volumes:
+      - ./airflow_dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - monitoring
+    command: scheduler
+    restart: unless-stopped
 
 # ==========================================
 # VOLUMES
@@ -298,6 +289,9 @@ volumes:
   evidently_reference:
     driver: local
     name: ${USER}_monitoring-evidently_reference
+  airflow_logs:
+    driver: local
+    name: ${USER}_monitoring-airflow_logs
 
 networks:
   monitoring:
