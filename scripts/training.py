@@ -18,20 +18,28 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 import numpy as np
 import os
+import sys
+
+# Configure UTF-8 output for Windows console
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 # ============================================
 # CONFIGURATION
 # ============================================
 
-MLFLOW_TRACKING_URI = 'http://localhost:5000'
+MLFLOW_TRACKING_URI = os.getenv('MLFLOW_TRACKING_URI', 'http://localhost:5000')
 MODEL_NAME = "wine_quality_model"
 EXPERIMENT_NAME = "wine_quality_experiment"
 
 # Configure MinIO S3 for artifacts
-os.environ['MLFLOW_S3_ENDPOINT_URL'] = 'http://localhost:9000'
-os.environ['AWS_ACCESS_KEY_ID'] = 'minio'
-os.environ['AWS_SECRET_ACCESS_KEY'] = 'minio123'
-os.environ['MLFLOW_S3_IGNORE_TLS'] = 'true'
+os.environ.setdefault('MLFLOW_S3_ENDPOINT_URL', 'http://localhost:9000')
+os.environ.setdefault('AWS_ACCESS_KEY_ID', 'minio')
+os.environ.setdefault('AWS_SECRET_ACCESS_KEY', 'minio123')
+os.environ.setdefault('MLFLOW_S3_IGNORE_TLS', 'true')
 
 print(f"🔧 MLFlow Tracking URI: {MLFLOW_TRACKING_URI}")
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
@@ -109,7 +117,6 @@ with mlflow.start_run(run_name="RandomForest_v1") as run:
     mlflow.sklearn.log_model(
         model,
         artifact_path="model",
-        registered_model_name=MODEL_NAME,
         signature=mlflow.models.infer_signature(X_train, y_pred),
         input_example=X_train[:5]
     )
@@ -117,6 +124,12 @@ with mlflow.start_run(run_name="RandomForest_v1") as run:
     run_id = run.info.run_id
     print(f"\n Model logged to MLFlow!")
     print(f"   Run ID: {run_id}")
+
+    # Register model
+    mlflow.register_model(
+        model_uri=f"runs:/{run_id}/model",
+        name=MODEL_NAME
+    )
 
 # ============================================
 # PROMOTE TO PRODUCTION
