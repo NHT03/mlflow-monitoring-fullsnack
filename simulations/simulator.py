@@ -16,9 +16,17 @@ from colorama import Fore, Style, init
 import yaml
 import json
 import logging
+import sys
 from pathlib import Path
 
 from data_generator import WineDataGenerator
+
+# Configure UTF-8 output for Windows console
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 # Initialize colorama
 init(autoreset=True)
@@ -51,6 +59,34 @@ class PredictionSimulator:
             'predictions': [],
             'errors': []
         }
+        
+        # Ensure Evidently has reference data
+        self.ensure_reference_data()
+    
+    def ensure_reference_data(self):
+        """Ensure reference data is loaded into Evidently service"""
+        try:
+            health_url = self.api_config.get('health_url', 'http://localhost:8000/health').replace(':8000/health', ':8001/health')
+            res = requests.get(health_url, timeout=3)
+            if res.status_code == 200:
+                data = res.json()
+                if not data.get("reference_data_loaded", False):
+                    logger.info("Uploading reference dataset to Evidently AI...")
+                    from sklearn.datasets import load_wine
+                    import pandas as pd
+                    wine = load_wine()
+                    df = pd.DataFrame(wine.data, columns=wine.feature_names)
+                    payload = {
+                        "data": df.to_dict(orient="records"),
+                        "feature_names": list(wine.feature_names),
+                        "description": "Wine quality reference dataset from scikit-learn load_wine"
+                    }
+                    ref_url = health_url.replace('/health', '/reference')
+                    upload_res = requests.post(ref_url, json=payload, timeout=10)
+                    if upload_res.status_code == 200:
+                        logger.info("✓ Reference data uploaded to Evidently successfully")
+        except Exception as e:
+            logger.debug(f"Could not auto-upload reference data: {e}")
     
     def check_api_health(self) -> bool:
         """Check if API is healthy"""

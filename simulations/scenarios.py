@@ -8,9 +8,17 @@ Ready-to-use simulation scenarios
 """
 
 import time
+import sys
 from simulator import PredictionSimulator
 from colorama import Fore, Style, init
 import logging
+
+# Configure UTF-8 output for Windows console
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 init(autoreset=True)
 logger = logging.getLogger(__name__)

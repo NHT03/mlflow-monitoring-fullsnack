@@ -14,6 +14,13 @@ from colorama import Fore, Style, init
 
 from simulator import PredictionSimulator
 
+# Configure UTF-8 output for Windows console
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 init(autoreset=True)
 
 
